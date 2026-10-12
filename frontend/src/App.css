@@ -1,0 +1,42 @@
+
+/* Smart Cargo application styles */
+
+/* Keep anchor navigation clear of the sticky navbar */
+section[id] {
+  scroll-margin-top: 80px;
+}
+
+/* Smooth transitions for interactive elements */
+button,
+a {
+  transition-property: color, background-color, border-color, box-shadow,
+    transform, opacity;
+  transition-duration: 200ms;
+  transition-timing-function: ease-in-out;
+}
+
+/* Prevent images from overflowing their containers */
+img,
+svg {
+  max-width: 100%;
+}
+
+/* Improve text wrapping on small screens */
+h1,
+h2,
+h3,
+p {
+  overflow-wrap: break-word;
+}
+
+/* Respect users who prefer reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

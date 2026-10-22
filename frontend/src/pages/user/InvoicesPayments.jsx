@@ -1,5 +1,8 @@
+
 import { useEffect, useMemo, useState } from 'react';
 import { apiRequest } from '../../services/api';
+
+const UPI_ID = 'varadbedekar80@oksbi';
 
 const formatCurrency = (amount) =>
   new Intl.NumberFormat('en-IN', {
@@ -30,13 +33,13 @@ const getStatusClass = (status) => {
   }
 
   if (
-    ['pending', 'pending_verification', 'processing'].includes(value)
+    ['pending', 'processing', 'pending_verification'].includes(value)
   ) {
     return 'bg-yellow-100 text-yellow-700';
   }
 
   if (
-    ['failed', 'cancelled', 'canceled', 'overdue'].includes(value)
+    ['failed', 'cancelled', 'canceled', 'overdue', 'rejected'].includes(value)
   ) {
     return 'bg-red-100 text-red-700';
   }
@@ -53,57 +56,49 @@ export default function InvoicesPayments() {
   const [invoiceStatus, setInvoiceStatus] = useState('all');
   const [paymentStatus, setPaymentStatus] = useState('all');
   const [activeTab, setActiveTab] = useState('invoices');
+
   const [selectedInvoice, setSelectedInvoice] = useState(null);
   const [invoicePayments, setInvoicePayments] = useState([]);
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [detailsError, setDetailsError] = useState('');
+
   const [transactionReference, setTransactionReference] = useState('');
   const [submittingReference, setSubmittingReference] = useState(false);
   const [referenceMessage, setReferenceMessage] = useState('');
+  const [referenceError, setReferenceError] = useState('');
+  const [copyMessage, setCopyMessage] = useState('');
 
   useEffect(() => {
-    let cancelled = false;
-
-    async function loadData() {
-      setLoading(true);
-      setError('');
-
-      try {
-        const [invoiceResult, paymentResult] = await Promise.all([
-          apiRequest('/invoices'),
-          apiRequest('/payments'),
-        ]);
-
-        if (cancelled) return;
-
-        setInvoices(
-          Array.isArray(invoiceResult.invoices)
-            ? invoiceResult.invoices
-            : []
-        );
-
-        setPayments(
-          Array.isArray(paymentResult.payments)
-            ? paymentResult.payments
-            : []
-        );
-      } catch (err) {
-        if (!cancelled) {
-          setError(
-            err.message || 'Failed to load invoices and payments.'
-          );
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-
     loadData();
-
-    return () => {
-      cancelled = true;
-    };
   }, []);
+
+  async function loadData() {
+    setLoading(true);
+    setError('');
+
+    try {
+      const [invoiceResult, paymentResult] = await Promise.all([
+        apiRequest('/invoices'),
+        apiRequest('/payments'),
+      ]);
+
+      setInvoices(
+        Array.isArray(invoiceResult.invoices)
+          ? invoiceResult.invoices
+          : []
+      );
+
+      setPayments(
+        Array.isArray(paymentResult.payments)
+          ? paymentResult.payments
+          : []
+      );
+    } catch (err) {
+      setError(err.message || 'Failed to load invoices and payments.');
+    } finally {
+      setLoading(false);
+    }
+  }
 
   const filteredInvoices = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -111,9 +106,7 @@ export default function InvoicesPayments() {
     return invoices.filter((invoice) => {
       const matchesSearch =
         !term ||
-        String(invoice.invoice_number || '')
-          .toLowerCase()
-          .includes(term) ||
+        String(invoice.invoice_number || '').toLowerCase().includes(term) ||
         String(invoice.shipment_id || '').includes(term) ||
         String(invoice.origin || '').toLowerCase().includes(term) ||
         String(invoice.destination || '').toLowerCase().includes(term);
@@ -132,12 +125,8 @@ export default function InvoicesPayments() {
     return payments.filter((payment) => {
       const matchesSearch =
         !term ||
-        String(payment.invoice_number || '')
-          .toLowerCase()
-          .includes(term) ||
-        String(payment.payment_reference || '')
-          .toLowerCase()
-          .includes(term) ||
+        String(payment.invoice_number || '').toLowerCase().includes(term) ||
+        String(payment.payment_reference || '').toLowerCase().includes(term) ||
         String(payment.shipment_id || '').includes(term);
 
       const matchesStatus =
@@ -155,13 +144,9 @@ export default function InvoicesPayments() {
 
   const totalPaid = invoices
     .filter(
-      (invoice) =>
-        String(invoice.status || '').toLowerCase() === 'paid'
+      (invoice) => String(invoice.status || '').toLowerCase() === 'paid'
     )
-    .reduce(
-      (sum, invoice) => sum + (Number(invoice.amount) || 0),
-      0
-    );
+    .reduce((sum, invoice) => sum + (Number(invoice.amount) || 0), 0);
 
   const totalSuccessfulPayments = payments
     .filter((payment) =>
@@ -169,17 +154,16 @@ export default function InvoicesPayments() {
         String(payment.status || '').toLowerCase()
       )
     )
-    .reduce(
-      (sum, payment) => sum + (Number(payment.amount) || 0),
-      0
-    );
+    .reduce((sum, payment) => sum + (Number(payment.amount) || 0), 0);
 
   async function viewInvoice(invoice) {
     setSelectedInvoice(invoice);
-    setTransactionReference('');
-    setReferenceMessage('');
     setInvoicePayments([]);
     setDetailsError('');
+    setReferenceMessage('');
+    setReferenceError('');
+    setTransactionReference('');
+    setCopyMessage('');
     setDetailsLoading(true);
 
     try {
@@ -204,33 +188,49 @@ export default function InvoicesPayments() {
     }
   }
 
+  function closeDetails() {
+    setSelectedInvoice(null);
+    setInvoicePayments([]);
+    setDetailsError('');
+    setReferenceMessage('');
+    setReferenceError('');
+    setTransactionReference('');
+    setCopyMessage('');
+  }
+
+  async function copyUpiId() {
+    try {
+      await navigator.clipboard.writeText(UPI_ID);
+      setCopyMessage('UPI ID copied successfully.');
+    } catch {
+      setCopyMessage(
+        `Copy this UPI ID manually: ${UPI_ID}`
+      );
+    }
+  }
+
   async function submitPaymentReference(event) {
     event.preventDefault();
-    setReferenceMessage('');
-    setDetailsError('');
 
     const reference = transactionReference.trim();
 
-    if (!reference) {
-      setReferenceMessage(
-        'Enter your UPI transaction ID / UTR.'
+    if (!selectedInvoice) return;
+
+    if (reference.length < 6) {
+      setReferenceError(
+        'Please enter a valid UPI transaction reference.'
       );
       return;
     }
 
-    if (reference.length < 6 || reference.length > 255) {
-      setReferenceMessage(
-        'The transaction reference must be between 6 and 255 characters.'
-      );
-      return;
-    }
-
-    if (!selectedInvoice?.id) {
-      setReferenceMessage('Select a valid invoice first.');
+    if (reference.length > 255) {
+      setReferenceError('The transaction reference is too long.');
       return;
     }
 
     setSubmittingReference(true);
+    setReferenceError('');
+    setReferenceMessage('');
 
     try {
       await apiRequest('/payments', {
@@ -241,20 +241,23 @@ export default function InvoicesPayments() {
         }),
       });
 
-      setTransactionReference('');
       setReferenceMessage(
-        'Reference submitted. Your payment is pending verification.'
+        'Transaction reference submitted. Your payment is awaiting verification.'
       );
+      setTransactionReference('');
 
-      const [invoicePaymentResult, allPaymentResult] =
+      const [invoiceResult, paymentResult, allPaymentResult] =
         await Promise.all([
+          apiRequest(`/invoices/${selectedInvoice.id}`),
           apiRequest(`/payments/invoice/${selectedInvoice.id}`),
           apiRequest('/payments'),
         ]);
 
+      setSelectedInvoice(invoiceResult.invoice || selectedInvoice);
+
       setInvoicePayments(
-        Array.isArray(invoicePaymentResult.payments)
-          ? invoicePaymentResult.payments
+        Array.isArray(paymentResult.payments)
+          ? paymentResult.payments
           : []
       );
 
@@ -264,21 +267,26 @@ export default function InvoicesPayments() {
           : []
       );
     } catch (err) {
-      setReferenceMessage(
-        err.message || 'Could not submit the payment reference.'
+      setReferenceError(
+        err.message || 'Could not submit the transaction reference.'
       );
     } finally {
       setSubmittingReference(false);
     }
   }
 
-  function closeDetails() {
-    setSelectedInvoice(null);
-    setInvoicePayments([]);
-    setDetailsError('');
-    setTransactionReference('');
-    setReferenceMessage('');
-  }
+  const invoiceIsPaid =
+    String(selectedInvoice?.status || '').toLowerCase() === 'paid';
+
+  const referenceAlreadySubmitted = invoicePayments.some((payment) =>
+    [
+      'pending_verification',
+      'success',
+      'successful',
+      'completed',
+      'paid',
+    ].includes(String(payment.status || '').toLowerCase())
+  );
 
   return (
     <div className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
@@ -363,9 +371,7 @@ export default function InvoicesPayments() {
 
             <select
               value={
-                activeTab === 'invoices'
-                  ? invoiceStatus
-                  : paymentStatus
+                activeTab === 'invoices' ? invoiceStatus : paymentStatus
               }
               onChange={(event) => {
                 if (activeTab === 'invoices') {
@@ -518,9 +524,8 @@ export default function InvoicesPayments() {
           )}
 
           <div className="border-t border-gray-100 px-5 py-3 text-xs text-gray-500">
-            Data is loaded from your account's invoice and payment records.
-            UPI transaction references are submitted for verification; this
-            page does not process UPI payments.
+            UPI references are submitted for verification. An invoice should
+            only be marked paid after the payment has been verified.
           </div>
         </div>
       </div>
@@ -579,101 +584,137 @@ export default function InvoicesPayments() {
                     label="Invoice Amount"
                     value={formatCurrency(selectedInvoice.amount)}
                   />
-
                   <Detail
                     label="Invoice Status"
                     value={selectedInvoice.status || '—'}
                   />
-
                   <Detail
                     label="Shipment ID"
                     value={`#${selectedInvoice.shipment_id ?? '—'}`}
                   />
-
                   <Detail
                     label="Transport Mode"
                     value={selectedInvoice.mode || '—'}
                   />
-
                   <Detail
                     label="Origin"
                     value={selectedInvoice.origin || '—'}
                   />
-
                   <Detail
                     label="Destination"
                     value={selectedInvoice.destination || '—'}
                   />
-
                   <Detail
                     label="Created Date"
                     value={formatDate(selectedInvoice.created_at)}
                   />
                 </div>
 
-                {String(selectedInvoice.status || '').toLowerCase() !==
-                  'paid' && (
-                  <form
-                    onSubmit={submitPaymentReference}
-                    className="mt-6 rounded-xl border border-blue-200 bg-blue-50 p-4"
-                  >
-                    <h3 className="font-semibold text-gray-900">
-                      Submit UPI Transaction Reference
+                {!invoiceIsPaid && !referenceAlreadySubmitted && (
+                  <div className="mt-6 rounded-xl border border-blue-200 bg-blue-50 p-5">
+                    <h3 className="text-lg font-semibold text-blue-900">
+                      Pay via UPI
                     </h3>
 
-                    <p className="mt-1 text-sm text-gray-600">
-                      After paying through your UPI app, enter the
-                      transaction ID / UTR below. The reference will remain
-                      pending until verified.
+                    <p className="mt-2 text-sm text-gray-700">
+                      Open your preferred UPI app and pay the invoice amount
+                      to this UPI ID:
                     </p>
 
-                    <label
-                      htmlFor="upi-transaction-reference"
-                      className="mt-4 block text-sm font-medium text-gray-700"
-                    >
-                      UPI Transaction ID / UTR
-                    </label>
+                    <div className="mt-3 flex flex-wrap items-center gap-3">
+                      <span className="break-all font-bold text-blue-900">
+                        {UPI_ID}
+                      </span>
 
-                    <input
-                      id="upi-transaction-reference"
-                      type="text"
-                      value={transactionReference}
-                      onChange={(event) =>
-                        setTransactionReference(event.target.value)
-                      }
-                      minLength={6}
-                      maxLength={255}
-                      autoComplete="off"
-                      placeholder="Enter transaction ID / UTR"
-                      disabled={submittingReference}
-                      className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-gray-100"
-                    />
-
-                    {referenceMessage && (
-                      <p
-                        role="status"
-                        className={`mt-3 text-sm ${
-                          /could not|must be|enter your|select a valid/i.test(
-                            referenceMessage
-                          )
-                            ? 'text-red-700'
-                            : 'text-blue-800'
-                        }`}
+                      <button
+                        type="button"
+                        onClick={copyUpiId}
+                        className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700"
                       >
-                        {referenceMessage}
+                        Copy UPI ID
+                      </button>
+                    </div>
+
+                    {copyMessage && (
+                      <p className="mt-2 text-sm text-blue-800">
+                        {copyMessage}
                       </p>
                     )}
 
-                    <button
-                      type="submit"
-                      disabled={submittingReference}
-                      className="mt-4 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                    <p className="mt-3 text-sm text-gray-700">
+                      After completing the payment, enter the UPI transaction
+                      reference (UTR) below. The reference will be reviewed
+                      before the invoice is marked paid.
+                    </p>
+
+                    <form
+                      onSubmit={submitPaymentReference}
+                      className="mt-4 space-y-3"
                     >
-                      {submittingReference
-                        ? 'Submitting...'
-                        : 'Submit Reference'}
-                    </button>
-                  </form>
+                      <label
+                        htmlFor="transaction-reference"
+                        className="block text-sm font-semibold text-gray-800"
+                      >
+                        UPI Transaction Reference / UTR
+                      </label>
+
+                      <input
+                        id="transaction-reference"
+                        type="text"
+                        value={transactionReference}
+                        onChange={(event) => {
+                          setTransactionReference(event.target.value);
+                          setReferenceError('');
+                          setReferenceMessage('');
+                        }}
+                        placeholder="Enter your UTR number"
+                        minLength={6}
+                        maxLength={255}
+                        required
+                        disabled={submittingReference}
+                        className="w-full rounded-lg border border-gray-300 bg-white px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-gray-100"
+                      />
+
+                      {referenceError && (
+                        <p className="rounded-lg bg-red-50 p-3 text-sm text-red-700">
+                          {referenceError}
+                        </p>
+                      )}
+
+                      {referenceMessage && (
+                        <p className="rounded-lg bg-green-50 p-3 text-sm text-green-700">
+                          {referenceMessage}
+                        </p>
+                      )}
+
+                      <button
+                        type="submit"
+                        disabled={
+                          submittingReference ||
+                          !transactionReference.trim()
+                        }
+                        className="w-full rounded-lg bg-blue-600 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {submittingReference
+                          ? 'Submitting Reference...'
+                          : 'Submit Payment Reference'}
+                      </button>
+                    </form>
+                  </div>
+                )}
+
+                {invoiceIsPaid && (
+                  <div className="mt-6 rounded-lg bg-green-50 p-4 text-sm text-green-800">
+                    This invoice is marked as paid.
+                  </div>
+                )}
+
+                {!invoiceIsPaid && referenceAlreadySubmitted && (
+                  <div className="mt-6 rounded-lg bg-yellow-50 p-4 text-sm text-yellow-800">
+                    A payment reference has already been submitted for this
+                    invoice or a payment is recorded. Check the payment
+                    history below for its current status.
+                  </div>
                 )}
 
                 <h3 className="mb-3 mt-6 font-semibold text-gray-900">
@@ -699,18 +740,15 @@ export default function InvoicesPayments() {
                       <tbody className="divide-y divide-gray-100">
                         {invoicePayments.map((payment) => (
                           <tr key={payment.id}>
-                            <td className="px-4 py-3">
+                            <td className="break-all px-4 py-3">
                               {payment.payment_reference || '—'}
                             </td>
-
                             <td className="px-4 py-3">
                               {formatCurrency(payment.amount)}
                             </td>
-
                             <td className="px-4 py-3">
                               <StatusBadge status={payment.status} />
                             </td>
-
                             <td className="px-4 py-3">
                               {formatDate(payment.paid_at)}
                             </td>
@@ -777,7 +815,6 @@ function Detail({ label, value }) {
       <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
         {label}
       </p>
-
       <p className="mt-1 break-words text-sm font-semibold text-gray-900">
         {value}
       </p>

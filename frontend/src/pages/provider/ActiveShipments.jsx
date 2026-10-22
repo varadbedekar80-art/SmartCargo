@@ -1,5 +1,4 @@
 
-
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { apiRequest } from '../../services/api'
 
@@ -496,8 +495,14 @@ export default function ActiveShipments() {
                           statusLabels[selectedShipment.status] ||
                             selectedShipment.status,
                         ],
-                        ['Created date', formatDate(selectedShipment.created_at)],
-                        ['Quoted rate', formatMoney(selectedShipment.quoted_rate)],
+                        [
+                          'Created date',
+                          formatDate(selectedShipment.created_at),
+                        ],
+                        [
+                          'Quoted rate',
+                          formatMoney(selectedShipment.quoted_rate),
+                        ],
                         [
                           'Estimated price',
                           formatMoney(selectedShipment.estimated_price),
@@ -525,12 +530,6 @@ export default function ActiveShipments() {
                       ))}
                     </div>
 
-                    <p className="mt-5 rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm leading-6 text-blue-900">
-                      Shipment status is retrieved from the backend. Status
-                      changes cannot be made here because the current provider
-                      API does not expose a shipment-status update endpoint.
-                    </p>
-
                     <div className="mt-6 flex justify-end">
                       <button
                         type="button"
@@ -546,12 +545,6 @@ export default function ActiveShipments() {
             </section>
           </div>
         )}
-
-        <p className="mt-6 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm leading-6 text-blue-900">
-          <strong>Backend integration:</strong> Shipment records and statuses
-          come from the database. Progress percentages are frontend indicators
-          based on the current shipment status; they are not live GPS tracking.
-        </p>
       </div>
     </div>
   )

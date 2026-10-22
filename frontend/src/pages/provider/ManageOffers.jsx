@@ -1,5 +1,4 @@
 
-
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { apiRequest } from '../../services/api'
 
@@ -476,9 +475,7 @@ export default function ManageOffers() {
                           </span>
                         </td>
                         <td className="px-4 py-4">
-                          <p>
-                            {formatNumber(offer.available_space)} kg
-                          </p>
+                          <p>{formatNumber(offer.available_space)} kg</p>
                           <p className="mt-1 text-xs text-slate-500">
                             of {formatNumber(offer.max_weight_kg)} kg
                           </p>
@@ -771,12 +768,6 @@ export default function ManageOffers() {
             </section>
           </div>
         )}
-
-        <p className="mt-6 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm leading-6 text-blue-900">
-          <strong>Connected to the backend:</strong> Creating an offer and
-          changing its status use the API. Editing and deleting are not shown
-          because the current backend does not provide those operations.
-        </p>
       </div>
     </div>
   )

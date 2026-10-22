@@ -390,12 +390,6 @@ export default function ProviderDashboard({ onNavigate }) {
           </div>
         </section>
       </div>
-
-      <div className="mt-6 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm leading-6 text-blue-900">
-        <strong>Live dashboard:</strong> Statistics and recent requests are
-        retrieved from your provider shipment and offer endpoints. The active
-        shipment count includes confirmed, picked-up, and in-transit shipments.
-      </div>
     </div>
   )
 }

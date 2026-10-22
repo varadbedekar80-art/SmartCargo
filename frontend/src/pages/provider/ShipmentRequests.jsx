@@ -619,13 +619,6 @@ export default function ShipmentRequests() {
             </section>
           </div>
         )}
-
-        <p className="mt-6 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm leading-6 text-blue-900">
-          <strong>Backend connected:</strong> Requests are loaded from your
-          provider account. Accepting or rejecting a pending request sends the
-          decision to the backend, which is responsible for updating the
-          shipment and associated records.
-        </p>
       </div>
     </div>
   )

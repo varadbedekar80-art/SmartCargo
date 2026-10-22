@@ -1,3 +1,4 @@
+
 const express = require('express');
 
 const authenticateToken = require('../middleware/authMiddleware');
@@ -7,23 +8,47 @@ const {
   listMyPayments,
   listPaymentsForInvoice,
   submitPaymentReference,
+  listProviderPendingPayments,
+  reviewProviderPayment,
 } = require('../controllers/paymentController');
 
 const router = express.Router();
 
-// Only authenticated Business Users can access payment records.
-router.use(
+// Business User payment routes.
+router.get(
+  '/',
   authenticateToken,
-  allowRoles('business_user')
+  allowRoles('business_user'),
+  listMyPayments
 );
 
-// Get all payments for the logged-in Business User.
-router.get('/', listMyPayments);
+router.get(
+  '/invoice/:invoiceId',
+  authenticateToken,
+  allowRoles('business_user'),
+  listPaymentsForInvoice
+);
 
-// Get payment records for a specific invoice.
-router.get('/invoice/:invoiceId', listPaymentsForInvoice);
+router.post(
+  '/',
+  authenticateToken,
+  allowRoles('business_user'),
+  submitPaymentReference
+);
 
-// Submit a UPI transaction reference.
-router.post('/', submitPaymentReference);
+// Logistics Provider verification routes.
+router.get(
+  '/provider/pending',
+  authenticateToken,
+  allowRoles('provider'),
+  listProviderPendingPayments
+);
+
+router.patch(
+  '/provider/:paymentId/review',
+  authenticateToken,
+  allowRoles('provider'),
+  reviewProviderPayment
+);
 
 module.exports = router;

@@ -94,9 +94,7 @@ function getNextMilestone(mode, history) {
   const latest = history[history.length - 1]?.milestone
   const currentIndex = latest ? allowed.indexOf(latest) : -1
 
-  if (currentIndex === -1) {
-    return allowed[0] || ''
-  }
+  if (currentIndex === -1) return allowed[0] || ''
 
   return allowed[currentIndex + 1] || ''
 }
@@ -106,10 +104,10 @@ export default function TrackingUpdates() {
   const [search, setSearch] = useState('')
   const [selectedId, setSelectedId] = useState('')
   const [historyByShipment, setHistoryByShipment] = useState({})
-  const [form, setForm] = useState({
-    milestone: '',
-    remarks: '',
-  })
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [historyError, setHistoryError] = useState('')
+  const [historyReloadKey, setHistoryReloadKey] = useState(0)
+  const [form, setForm] = useState({ milestone: '', remarks: '' })
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -122,8 +120,6 @@ export default function TrackingUpdates() {
     try {
       const response = await apiRequest('/provider/shipments')
       const allShipments = response.shipments || []
-
-      // Only shipments that the backend currently permits tracking.
       const trackableShipments = allShipments.filter((shipment) =>
         ['confirmed', 'picked_up', 'in_transit'].includes(shipment.status),
       )
@@ -131,7 +127,11 @@ export default function TrackingUpdates() {
       setShipments(trackableShipments)
 
       setSelectedId((currentId) => {
-        if (trackableShipments.some((shipment) => String(shipment.id) === currentId)) {
+        if (
+          trackableShipments.some(
+            (shipment) => String(shipment.id) === currentId,
+          )
+        ) {
           return currentId
         }
 
@@ -162,7 +162,7 @@ export default function TrackingUpdates() {
       milestonesByMode[
         String(selectedShipment?.mode || '').toLowerCase()
       ] || [],
-    [selectedShipment],
+    [selectedShipment?.mode],
   )
 
   const nextMilestone = getNextMilestone(
@@ -171,15 +171,52 @@ export default function TrackingUpdates() {
   )
 
   useEffect(() => {
+    if (!selectedId || !selectedShipment) {
+      setHistoryLoading(false)
+      setHistoryError('')
+      return
+    }
+
+    let cancelled = false
+
+    async function loadTrackingHistory() {
+      setHistoryLoading(true)
+      setHistoryError('')
+
+      try {
+        const response = await apiRequest(`/tracking/${selectedId}`)
+
+        if (cancelled) return
+
+        setHistoryByShipment((previous) => ({
+          ...previous,
+          [selectedId]: Array.isArray(response.history)
+            ? response.history
+            : [],
+        }))
+      } catch (err) {
+        if (!cancelled) {
+          setHistoryError(err.message || 'Unable to load tracking history.')
+        }
+      } finally {
+        if (!cancelled) setHistoryLoading(false)
+      }
+    }
+
+    loadTrackingHistory()
+
+    return () => {
+      cancelled = true
+    }
+  }, [selectedId, selectedShipment, historyReloadKey])
+
+  useEffect(() => {
     if (!selectedShipment) {
       setForm({ milestone: '', remarks: '' })
       return
     }
 
-    setForm({
-      milestone: nextMilestone,
-      remarks: '',
-    })
+    setForm({ milestone: nextMilestone, remarks: '' })
   }, [selectedId, selectedShipment?.mode, nextMilestone])
 
   const filteredShipments = useMemo(() => {
@@ -203,6 +240,7 @@ export default function TrackingUpdates() {
     setSelectedId(String(id))
     setFeedback('')
     setError('')
+    setHistoryError('')
   }
 
   async function handleSubmit(event) {
@@ -215,13 +253,18 @@ export default function TrackingUpdates() {
       return
     }
 
+    if (historyLoading || historyError) {
+      setError('Load tracking history before submitting an update.')
+      return
+    }
+
     if (!form.milestone) {
       setError('There are no remaining milestones for this shipment.')
       return
     }
 
     if (!allowedMilestones.includes(form.milestone)) {
-      setError('Choose a valid milestone for this shipment’s transport mode.')
+      setError('Choose a valid milestone for this transport mode.')
       return
     }
 
@@ -232,37 +275,39 @@ export default function TrackingUpdates() {
       return
     }
 
+    const shipmentId = selectedShipment.id
+    const historyKey = selectedId
+
     setSaving(true)
 
     try {
-      const response = await apiRequest(
-        `/tracking/${selectedShipment.id}`,
-        {
-          method: 'POST',
-          body: JSON.stringify({
-            milestone: form.milestone,
-            remarks: remarks || null,
-          }),
-        },
-      )
+      const response = await apiRequest(`/tracking/${shipmentId}`, {
+        method: 'POST',
+        body: JSON.stringify({
+          milestone: form.milestone,
+          remarks: remarks || null,
+        }),
+      })
 
-      const tracking = response.tracking
-      const entry = {
-        milestone: tracking?.milestone || form.milestone,
-        remarks,
-        created_at: new Date().toISOString(),
+      setFeedback(response.message || 'Tracking update added successfully.')
+
+      try {
+        const historyResponse = await apiRequest(`/tracking/${shipmentId}`)
+
+        setHistoryByShipment((previous) => ({
+          ...previous,
+          [historyKey]: Array.isArray(historyResponse.history)
+            ? historyResponse.history
+            : [],
+        }))
+
+        setHistoryError('')
+      } catch (historyErr) {
+        setHistoryError(
+          historyErr.message || 'Update saved, but history could not refresh.',
+        )
       }
 
-      setHistoryByShipment((previous) => ({
-        ...previous,
-        [selectedId]: [...(previous[selectedId] || []), entry],
-      }))
-
-      setFeedback(
-        response.message || 'Tracking update added successfully.',
-      )
-
-      // Reload to reflect any overall shipment-status change made by backend.
       await loadShipments()
     } catch (err) {
       setError(err.message || 'Failed to save tracking update.')
@@ -282,9 +327,6 @@ export default function TrackingUpdates() {
             <h1 className="mt-2 text-3xl font-extrabold tracking-tight">
               Tracking Updates
             </h1>
-            <p className="mt-2 text-slate-600">
-              Record valid shipment milestones and keep customers informed.
-            </p>
           </div>
 
           <button
@@ -318,9 +360,6 @@ export default function TrackingUpdates() {
         <div className="mt-7 grid gap-6 xl:grid-cols-5">
           <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm xl:col-span-2">
             <h2 className="text-lg font-bold">Select Shipment</h2>
-            <p className="mt-1 text-sm text-slate-500">
-              Select one of your accepted or in-progress shipments.
-            </p>
 
             <div className="mt-5">
               <label
@@ -436,6 +475,7 @@ export default function TrackingUpdates() {
                         {selectedShipment.origin}
                       </p>
                     </div>
+
                     <div className="rounded-xl bg-slate-50 p-4">
                       <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                         Destination
@@ -451,35 +491,54 @@ export default function TrackingUpdates() {
                       Next allowed milestone
                     </p>
                     <p className="mt-2 font-bold text-blue-950">
-                      {nextMilestone
-                        ? milestoneLabels[nextMilestone] || nextMilestone
-                        : 'No further milestones available'}
-                    </p>
-                    <p className="mt-1 text-xs leading-5 text-blue-800">
-                      The backend enforces the milestone sequence for this
-                      transport mode.
+                      {historyLoading
+                        ? 'Loading history...'
+                        : historyError
+                          ? 'History unavailable'
+                          : nextMilestone
+                            ? milestoneLabels[nextMilestone] || nextMilestone
+                            : 'No further milestones available'}
                     </p>
                   </div>
 
                   <div className="mt-7">
-                    <h3 className="font-bold">Updates Submitted This Visit</h3>
+                    <h3 className="font-bold">Tracking History</h3>
 
-                    {selectedHistory.length === 0 ? (
+                    {historyLoading ? (
                       <p className="mt-4 rounded-xl bg-slate-50 p-4 text-sm text-slate-600">
-                        No updates have been submitted from this page during
-                        the current visit. Existing history is not exposed by
-                        the provider API.
+                        Loading tracking history...
+                      </p>
+                    ) : historyError ? (
+                      <div
+                        role="alert"
+                        className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800"
+                      >
+                        <p>{historyError}</p>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setHistoryReloadKey((key) => key + 1)
+                          }
+                          className="mt-3 rounded-lg border border-red-300 px-3 py-2 font-semibold hover:bg-red-100"
+                        >
+                          Retry
+                        </button>
+                      </div>
+                    ) : selectedHistory.length === 0 ? (
+                      <p className="mt-4 rounded-xl bg-slate-50 p-4 text-sm text-slate-600">
+                        No tracking updates recorded yet.
                       </p>
                     ) : (
                       <div className="mt-5 space-y-4">
                         {selectedHistory.map((entry, index) => (
                           <div
-                            key={`${entry.created_at}-${index}`}
+                            key={entry.id ?? `${entry.created_at}-${index}`}
                             className="flex gap-4"
                           >
                             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-sm font-bold text-emerald-700">
                               ✓
                             </span>
+
                             <div className="min-w-0 flex-1 border-b border-slate-100 pb-4">
                               <div className="flex flex-col justify-between gap-1 sm:flex-row">
                                 <p className="font-semibold">
@@ -490,6 +549,7 @@ export default function TrackingUpdates() {
                                   {formatDate(entry.created_at)}
                                 </span>
                               </div>
+
                               <p className="mt-2 text-sm leading-6 text-slate-600">
                                 {entry.remarks || 'No additional remarks.'}
                               </p>
@@ -503,9 +563,6 @@ export default function TrackingUpdates() {
 
                 <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm lg:p-6">
                   <h2 className="text-lg font-bold">Add Tracking Update</h2>
-                  <p className="mt-1 text-sm text-slate-500">
-                    Submit the next milestone to the backend.
-                  </p>
 
                   <form onSubmit={handleSubmit} className="mt-5 space-y-5">
                     <div>
@@ -515,10 +572,16 @@ export default function TrackingUpdates() {
                       >
                         Shipment milestone
                       </label>
+
                       <select
                         id="milestone"
                         required
-                        disabled={!nextMilestone || saving}
+                        disabled={
+                          !nextMilestone ||
+                          saving ||
+                          historyLoading ||
+                          !!historyError
+                        }
                         value={form.milestone}
                         onChange={(event) =>
                           setForm((previous) => ({
@@ -534,11 +597,6 @@ export default function TrackingUpdates() {
                           </option>
                         ))}
                       </select>
-                      <p className="mt-2 text-xs leading-5 text-slate-500">
-                        Only the next valid milestone should be submitted.
-                        Skipping milestones or repeating one is rejected by
-                        the backend.
-                      </p>
                     </div>
 
                     <div>
@@ -548,6 +606,7 @@ export default function TrackingUpdates() {
                       >
                         Remarks (optional)
                       </label>
+
                       <textarea
                         id="tracking-remarks"
                         maxLength={1000}
@@ -560,9 +619,10 @@ export default function TrackingUpdates() {
                             remarks: event.target.value,
                           }))
                         }
-                        placeholder="Add relevant shipment activity details..."
+                        placeholder="Add shipment remarks..."
                         className={inputClass}
                       />
+
                       <p className="mt-1 text-xs text-slate-500">
                         Maximum 1,000 characters.
                       </p>
@@ -570,7 +630,12 @@ export default function TrackingUpdates() {
 
                     <button
                       type="submit"
-                      disabled={saving || !nextMilestone}
+                      disabled={
+                        saving ||
+                        !nextMilestone ||
+                        historyLoading ||
+                        !!historyError
+                      }
                       className="w-full rounded-xl bg-blue-700 px-5 py-3 font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
                     >
                       {saving ? 'Saving update...' : '+ Save Tracking Update'}
@@ -587,7 +652,7 @@ export default function TrackingUpdates() {
                   </h2>
                   <p className="mt-2 text-sm text-slate-500">
                     {loading
-                      ? 'Retrieving your shipments from the server.'
+                      ? 'Retrieving shipments...'
                       : 'Accepted and in-progress shipments will appear here.'}
                   </p>
                 </div>
@@ -595,13 +660,6 @@ export default function TrackingUpdates() {
             )}
           </div>
         </div>
-
-        <p className="mt-6 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm leading-6 text-blue-900">
-          <strong>Backend integration:</strong> Tracking updates are saved to
-          the database. Existing tracking history is not yet available to
-          providers through the current API, so this page displays only updates
-          submitted during the current visit.
-        </p>
       </div>
     </div>
   )

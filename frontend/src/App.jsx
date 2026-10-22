@@ -11,7 +11,6 @@ import CargoManagement from './pages/user/CargoManagement'
 import CreateShipment from './pages/user/CreateShipment'
 import MyShipments from './pages/user/MyShipments'
 import AvailableOffers from './pages/user/AvailableOffers'
-import TrackShipment from './pages/user/TrackShipment'
 import InvoicesPayments from './pages/user/InvoicesPayments'
 import UserProfile from './pages/user/UserProfile'
 import UserSettings from './pages/user/UserSettings'
@@ -52,7 +51,6 @@ const rolePages = {
     'Create Shipment',
     'My Shipments',
     'Available Offers',
-    'Track Shipment',
     'Invoices & Payments',
     'Profile',
     'Settings',
@@ -89,7 +87,6 @@ const pageComponents = {
     'Create Shipment': CreateShipment,
     'My Shipments': MyShipments,
     'Available Offers': AvailableOffers,
-    'Track Shipment': TrackShipment,
     'Invoices & Payments': InvoicesPayments,
     Profile: UserProfile,
     Settings: UserSettings,

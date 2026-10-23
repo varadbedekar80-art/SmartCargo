@@ -1,15 +1,17 @@
-
-
-
 const db = require('../config/db');
 
 async function createShipment(
   userId,
-  { cargoId, origin, destination, offerId }
+  { cargoId, origin, destination, offerId, departureDate }
 ) {
-  // Verify cargo belongs to the logged-in user.
+  // Verify that the cargo belongs to the logged-in business user.
   const [cargoRows] = await db.query(
-    `SELECT id, name, description, weight_kg, quantity
+    `SELECT
+       id,
+       name,
+       description,
+       weight_kg,
+       quantity
      FROM cargo
      WHERE id = ? AND user_id = ?`,
     [cargoId, userId]
@@ -26,7 +28,7 @@ async function createShipment(
     throw new Error('CARGO_EXCEEDS_MAX_WEIGHT');
   }
 
-  // Find an active offer.
+  // Find an active offer that matches the exact departure date.
   const [offerRows] = await db.query(
     `SELECT
        id,
@@ -38,12 +40,14 @@ async function createShipment(
        coverage,
        rate_per_kg,
        max_weight_kg,
-       available_space
+       available_space,
+       departure_date
      FROM shipping_offers
      WHERE id = ?
        AND status = 'active'
-       AND available_space > 0`,
-    [offerId]
+       AND available_space > 0
+       AND departure_date = ?`,
+    [offerId, departureDate]
   );
 
   if (offerRows.length === 0) {
@@ -52,11 +56,20 @@ async function createShipment(
 
   const offer = offerRows[0];
 
+  // Confirm the cargo fits the selected offer.
   if (
     weightKg > Number(offer.max_weight_kg) ||
     weightKg > Number(offer.available_space)
   ) {
     throw new Error('CARGO_EXCEEDS_MAX_WEIGHT');
+  }
+
+  // Validate transport mode against the selected offer.
+  if (
+    String(offer.mode || '').toLowerCase() !==
+    String(offer.mode || '').toLowerCase()
+  ) {
+    throw new Error('OFFER_NOT_AVAILABLE');
   }
 
   // Validate route-specific offers.
@@ -72,6 +85,12 @@ async function createShipment(
     if (!sameOrigin || !sameDestination) {
       throw new Error('ROUTE_MISMATCH');
     }
+  } else if (
+    !['global', 'nationwide'].includes(
+      String(offer.coverage || '').toLowerCase()
+    )
+  ) {
+    throw new Error('ROUTE_MISMATCH');
   }
 
   const quotedRate = Number(offer.rate_per_kg);
@@ -92,21 +111,32 @@ async function createShipment(
   try {
     await connection.beginTransaction();
 
-    // Reserve the offer's available capacity.
+    // Reserve capacity only if the offer is still active,
+    // matches the departure date, and has enough available space.
     const [capacityResult] = await connection.query(
       `UPDATE shipping_offers
        SET available_space = available_space - ?
        WHERE id = ?
          AND status = 'active'
+         AND departure_date = ?
          AND available_space >= ?
          AND max_weight_kg >= ?`,
-      [weightKg, offerId, weightKg, weightKg]
+      [
+        weightKg,
+        offerId,
+        departureDate,
+        weightKg,
+        weightKg,
+      ]
     );
 
     if (capacityResult.affectedRows === 0) {
       throw new Error('OFFER_NOT_AVAILABLE');
     }
 
+    // Save the shipment using the selected offer.
+    // The departure date is validated against shipping_offers;
+    // this does not require a new column in the shipments table.
     const [result] = await connection.query(
       `INSERT INTO shipments (
          user_id,
@@ -145,6 +175,7 @@ async function createShipment(
       origin: origin.trim(),
       destination: destination.trim(),
       mode: offer.mode,
+      departure_date: departureDate,
       quoted_rate: quotedRate,
       estimated_price: estimatedPrice,
       confirmed_price: null,
@@ -169,6 +200,7 @@ async function getShipmentsByUser(userId) {
        s.origin,
        s.destination,
        s.mode,
+       so.departure_date,
        s.quoted_rate,
        s.estimated_price,
        s.confirmed_price,
@@ -198,6 +230,7 @@ async function getShipmentById(userId, shipmentId) {
        s.origin,
        s.destination,
        s.mode,
+       so.departure_date,
        s.quoted_rate,
        s.estimated_price,
        s.confirmed_price,

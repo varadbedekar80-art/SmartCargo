@@ -16,13 +16,56 @@ async function addOffer(req, res) {
       ratePerKg,
       maxWeightKg,
       availableSpace,
+      departureDate,
     } = req.body;
 
-    const validOfferTypes = ['route_specific', 'general_capacity'];
-    const validModes = ['air', 'sea', 'road'];
-    const validCoverages = ['global', 'nationwide', 'route_specific'];
+    // Departure date is required in YYYY-MM-DD format.
+    if (
+      typeof departureDate !== 'string' ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(departureDate)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: 'A valid cargo departure date is required',
+      });
+    }
 
-    // Validate offer type, transport mode, and coverage.
+    const parsedDepartureDate = new Date(
+      `${departureDate}T00:00:00.000Z`
+    );
+
+    if (
+      Number.isNaN(parsedDepartureDate.getTime()) ||
+      parsedDepartureDate.toISOString().slice(0, 10) !== departureDate
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid cargo departure date',
+      });
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+
+    if (departureDate < today) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cargo departure date cannot be in the past',
+      });
+    }
+
+    const validOfferTypes = [
+      'route_specific',
+      'general_capacity',
+    ];
+
+    const validModes = ['air', 'sea', 'road'];
+
+    const validCoverages = [
+      'global',
+      'nationwide',
+      'route_specific',
+    ];
+
     if (
       !validOfferTypes.includes(offerType) ||
       !validModes.includes(mode) ||
@@ -34,7 +77,6 @@ async function addOffer(req, res) {
       });
     }
 
-    // Route-specific offers must use route-specific coverage.
     if (
       offerType === 'route_specific' &&
       coverage !== 'route_specific'
@@ -45,7 +87,6 @@ async function addOffer(req, res) {
       });
     }
 
-    // General-capacity offers must use global or nationwide coverage.
     if (
       offerType === 'general_capacity' &&
       !['global', 'nationwide'].includes(coverage)
@@ -56,7 +97,7 @@ async function addOffer(req, res) {
       });
     }
 
-    // Validate route fields and their lengths.
+    // Validate origin and destination for route-specific offers.
     if (offerType === 'route_specific') {
       if (
         typeof origin !== 'string' ||
@@ -70,14 +111,20 @@ async function addOffer(req, res) {
         });
       }
 
-      if (origin.trim().length > 150 || destination.trim().length > 150) {
+      if (
+        origin.trim().length > 150 ||
+        destination.trim().length > 150
+      ) {
         return res.status(400).json({
           success: false,
           message: 'Origin and destination cannot exceed 150 characters',
         });
       }
 
-      if (origin.trim().toLowerCase() === destination.trim().toLowerCase()) {
+      if (
+        origin.trim().toLowerCase() ===
+        destination.trim().toLowerCase()
+      ) {
         return res.status(400).json({
           success: false,
           message: 'Origin and destination must be different',
@@ -85,7 +132,9 @@ async function addOffer(req, res) {
       }
     } else if (
       (origin !== undefined && origin !== null && origin !== '') ||
-      (destination !== undefined && destination !== null && destination !== '')
+      (destination !== undefined &&
+        destination !== null &&
+        destination !== '')
     ) {
       return res.status(400).json({
         success: false,
@@ -93,7 +142,7 @@ async function addOffer(req, res) {
       });
     }
 
-    // Reject missing, blank, non-numeric, or invalid numeric values.
+    // Validate rate per kg.
     if (
       ratePerKg === undefined ||
       ratePerKg === null ||
@@ -107,6 +156,7 @@ async function addOffer(req, res) {
       });
     }
 
+    // Validate maximum weight.
     if (
       maxWeightKg === undefined ||
       maxWeightKg === null ||
@@ -120,6 +170,7 @@ async function addOffer(req, res) {
       });
     }
 
+    // Validate available space.
     if (
       availableSpace !== undefined &&
       (
@@ -139,16 +190,27 @@ async function addOffer(req, res) {
     const offer = await createOffer(req.user.id, {
       offerType,
       mode,
-      origin: offerType === 'route_specific' ? origin.trim() : null,
+
+      origin:
+        offerType === 'route_specific'
+          ? origin.trim()
+          : null,
+
       destination:
-        offerType === 'route_specific' ? destination.trim() : null,
+        offerType === 'route_specific'
+          ? destination.trim()
+          : null,
+
       coverage,
       ratePerKg: Number(ratePerKg),
       maxWeightKg: Number(maxWeightKg),
+
       availableSpace:
         availableSpace === undefined
           ? Number(maxWeightKg)
           : Number(availableSpace),
+
+      departureDate,
     });
 
     return res.status(201).json({
@@ -193,7 +255,36 @@ async function listMyOffers(req, res) {
 
 async function listActiveOffers(req, res) {
   try {
-    const offers = await getActiveOffers();
+    const { departureDate } = req.query;
+
+    // Validate the optional date filter.
+    if (departureDate !== undefined) {
+      if (
+        typeof departureDate !== 'string' ||
+        !/^\d{4}-\d{2}-\d{2}$/.test(departureDate)
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid departure date filter',
+        });
+      }
+
+      const parsedDate = new Date(
+        `${departureDate}T00:00:00.000Z`
+      );
+
+      if (
+        Number.isNaN(parsedDate.getTime()) ||
+        parsedDate.toISOString().slice(0, 10) !== departureDate
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid departure date filter',
+        });
+      }
+    }
+
+    const offers = await getActiveOffers(departureDate || null);
 
     return res.status(200).json({
       success: true,

@@ -1,5 +1,3 @@
-
-
 import { useEffect, useMemo, useState } from 'react'
 import { apiRequest } from '../../services/api'
 
@@ -13,10 +11,16 @@ const formatPrice = (price) =>
       }).format(Number(price))
 
 const getProvider = (offer) =>
-  offer.company_name || offer.provider_name || offer.companyName || 'Logistics Provider'
+  offer.company_name ||
+  offer.provider_name ||
+  offer.companyName ||
+  'Logistics Provider'
 
 const getMode = (offer) =>
-  offer.mode || offer.transport_mode || offer.transportMode || 'Other'
+  offer.mode ||
+  offer.transport_mode ||
+  offer.transportMode ||
+  'Other'
 
 const getRate = (offer) =>
   offer.rate_per_kg ?? offer.ratePerKg
@@ -32,10 +36,28 @@ const getRoute = (offer) => {
   return offer.coverage || 'Route details available from provider'
 }
 
+const formatDepartureDate = (value) => {
+  if (!value) return 'Not specified'
+
+  const dateString = String(value).slice(0, 10)
+  const date = new Date(`${dateString}T00:00:00`)
+
+  if (Number.isNaN(date.getTime())) {
+    return 'Not specified'
+  }
+
+  return date.toLocaleDateString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  })
+}
+
 export default function AvailableOffers({ onNavigate }) {
   const [offers, setOffers] = useState([])
   const [search, setSearch] = useState('')
   const [modeFilter, setModeFilter] = useState('All')
+  const [departureDate, setDepartureDate] = useState('')
   const [sortBy, setSortBy] = useState('priceLow')
   const [selectedOffer, setSelectedOffer] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -49,17 +71,23 @@ export default function AvailableOffers({ onNavigate }) {
       setError('')
 
       try {
-        const result = await apiRequest('/offers/active')
+        const query = departureDate
+          ? `?departureDate=${encodeURIComponent(departureDate)}`
+          : ''
+
+        const result = await apiRequest(`/offers/active${query}`)
 
         if (active) {
-          setOffers(result.offers || [])
+          setOffers(Array.isArray(result.offers) ? result.offers : [])
         }
       } catch (err) {
         if (active) {
           setError(err.message || 'Unable to load available offers.')
         }
       } finally {
-        if (active) setLoading(false)
+        if (active) {
+          setLoading(false)
+        }
       }
     }
 
@@ -68,7 +96,7 @@ export default function AvailableOffers({ onNavigate }) {
     return () => {
       active = false
     }
-  }, [])
+  }, [departureDate])
 
   const modes = useMemo(
     () => [...new Set(offers.map(getMode))],
@@ -87,12 +115,14 @@ export default function AvailableOffers({ onNavigate }) {
           offer.destination,
           offer.coverage,
           offer.offer_type,
+          formatDepartureDate(offer.departure_date),
         ]
           .filter(Boolean)
           .join(' ')
           .toLowerCase()
 
         const matchesSearch = searchText.includes(query)
+
         const matchesMode =
           modeFilter === 'All' || getMode(offer) === modeFilter
 
@@ -102,8 +132,13 @@ export default function AvailableOffers({ onNavigate }) {
         const priceA = Number(getRate(a) ?? Infinity)
         const priceB = Number(getRate(b) ?? Infinity)
 
-        if (sortBy === 'priceLow') return priceA - priceB
-        if (sortBy === 'priceHigh') return priceB - priceA
+        if (sortBy === 'priceLow') {
+          return priceA - priceB
+        }
+
+        if (sortBy === 'priceHigh') {
+          return priceB - priceA
+        }
 
         return getProvider(a).localeCompare(getProvider(b))
       })
@@ -124,9 +159,11 @@ export default function AvailableOffers({ onNavigate }) {
           <p className="text-sm font-medium text-blue-700">
             Business User / Logistics
           </p>
+
           <h1 className="mt-2 text-3xl font-extrabold tracking-tight">
             Available Offers
           </h1>
+
           <p className="mt-2 max-w-2xl leading-7 text-slate-600">
             Compare active logistics offers and choose a provider for your
             shipment.
@@ -157,7 +194,7 @@ export default function AvailableOffers({ onNavigate }) {
         </div>
 
         <div className="mt-7 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="grid gap-4 md:grid-cols-3">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <div>
               <label
                 htmlFor="offerSearch"
@@ -165,6 +202,7 @@ export default function AvailableOffers({ onNavigate }) {
               >
                 Search offers
               </label>
+
               <input
                 id="offerSearch"
                 type="search"
@@ -182,6 +220,7 @@ export default function AvailableOffers({ onNavigate }) {
               >
                 Transport mode
               </label>
+
               <select
                 id="modeFilter"
                 value={modeFilter}
@@ -189,6 +228,7 @@ export default function AvailableOffers({ onNavigate }) {
                 className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-blue-600"
               >
                 <option value="All">All modes</option>
+
                 {modes.map((mode) => (
                   <option key={mode} value={mode}>
                     {mode}
@@ -199,11 +239,39 @@ export default function AvailableOffers({ onNavigate }) {
 
             <div>
               <label
+                htmlFor="departureDateFilter"
+                className="mb-2 block text-sm font-semibold text-slate-700"
+              >
+                Cargo departure date
+              </label>
+
+              <input
+                id="departureDateFilter"
+                type="date"
+                value={departureDate}
+                onChange={(event) => setDepartureDate(event.target.value)}
+                className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-blue-600"
+              />
+
+              {departureDate && (
+                <button
+                  type="button"
+                  onClick={() => setDepartureDate('')}
+                  className="mt-1 text-xs font-semibold text-blue-700 hover:underline"
+                >
+                  Clear date filter
+                </button>
+              )}
+            </div>
+
+            <div>
+              <label
                 htmlFor="sortOffers"
                 className="mb-2 block text-sm font-semibold text-slate-700"
               >
                 Sort offers
               </label>
+
               <select
                 id="sortOffers"
                 value={sortBy}
@@ -225,6 +293,7 @@ export default function AvailableOffers({ onNavigate }) {
           >
             <p className="font-semibold">Could not load offers</p>
             <p className="mt-1">{error}</p>
+
             <button
               type="button"
               onClick={() => window.location.reload()}
@@ -253,9 +322,11 @@ export default function AvailableOffers({ onNavigate }) {
                     <span className="rounded-full bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-700">
                       {getMode(offer)}
                     </span>
+
                     <h2 className="mt-3 text-lg font-bold">
                       {getProvider(offer)}
                     </h2>
+
                     <p className="mt-1 text-sm text-slate-500">
                       Offer ID: {offer.id}
                     </p>
@@ -265,9 +336,8 @@ export default function AvailableOffers({ onNavigate }) {
                     <p className="text-lg font-extrabold text-blue-700">
                       {formatPrice(getRate(offer))}
                     </p>
-                    <p className="mt-1 text-xs text-slate-500">
-                      Per kg
-                    </p>
+
+                    <p className="mt-1 text-xs text-slate-500">Per kg</p>
                   </div>
                 </div>
 
@@ -277,9 +347,20 @@ export default function AvailableOffers({ onNavigate }) {
                     <p className="mt-2 font-semibold">{getRoute(offer)}</p>
                   </div>
 
+                  <div className="mt-3 rounded-xl bg-blue-50 p-3">
+                    <p className="text-xs text-blue-700">
+                      Cargo departure date
+                    </p>
+
+                    <p className="mt-1 font-semibold text-slate-900">
+                      {formatDepartureDate(offer.departure_date)}
+                    </p>
+                  </div>
+
                   <div className="mt-5 grid grid-cols-2 gap-3">
                     <div className="rounded-xl bg-slate-50 p-3">
                       <p className="text-xs text-slate-500">Maximum weight</p>
+
                       <p className="mt-1 font-semibold">
                         {getMaxWeight(offer) != null
                           ? `${getMaxWeight(offer)} kg`
@@ -289,6 +370,7 @@ export default function AvailableOffers({ onNavigate }) {
 
                     <div className="rounded-xl bg-slate-50 p-3">
                       <p className="text-xs text-slate-500">Offer type</p>
+
                       <p className="mt-1 font-semibold">
                         {offer.offer_type || 'Standard'}
                       </p>
@@ -297,7 +379,7 @@ export default function AvailableOffers({ onNavigate }) {
 
                   {offer.available_space != null && (
                     <p className="mt-4 text-sm text-slate-600">
-                      Available space: {offer.available_space}
+                      Available space: {offer.available_space} kg
                     </p>
                   )}
 
@@ -325,8 +407,9 @@ export default function AvailableOffers({ onNavigate }) {
             {filteredOffers.length === 0 && (
               <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center lg:col-span-2">
                 <p className="text-lg font-bold">No matching offers found</p>
+
                 <p className="mt-2 text-sm text-slate-500">
-                  Try another search or transport mode.
+                  Try another search, transport mode, or departure date.
                 </p>
               </div>
             )}
@@ -350,7 +433,11 @@ export default function AvailableOffers({ onNavigate }) {
                   <p className="text-sm font-medium text-blue-700">
                     Active logistics offer
                   </p>
-                  <h2 id="offerDialogTitle" className="mt-1 text-2xl font-bold">
+
+                  <h2
+                    id="offerDialogTitle"
+                    className="mt-1 text-2xl font-bold"
+                  >
                     {getProvider(selectedOffer)}
                   </h2>
                 </div>
@@ -378,6 +465,10 @@ export default function AvailableOffers({ onNavigate }) {
                       : 'Not specified',
                   ],
                   ['Offer type', selectedOffer.offer_type || 'Standard'],
+                  [
+                    'Cargo departure date',
+                    formatDepartureDate(selectedOffer.departure_date),
+                  ],
                 ].map(([label, value]) => (
                   <div
                     key={label}

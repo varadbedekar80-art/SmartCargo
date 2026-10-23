@@ -1,4 +1,3 @@
-
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { apiRequest } from '../../services/api'
 
@@ -11,6 +10,7 @@ const emptyForm = {
   ratePerKg: '',
   maxWeightKg: '',
   availableSpace: '',
+  departureDate: '',
 }
 
 const inputClass =
@@ -47,6 +47,27 @@ function offerTitle(offer) {
   }
 
   return `${offer.origin || 'Origin'} to ${offer.destination || 'Destination'}`
+}
+
+function formatDepartureDate(value) {
+  if (!value) return 'Not set'
+
+  const dateString = String(value).slice(0, 10)
+  const date = new Date(`${dateString}T00:00:00`)
+
+  return Number.isNaN(date.getTime())
+    ? 'Not set'
+    : date.toLocaleDateString('en-IN', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+      })
+}
+
+function getTodayDate() {
+  const now = new Date()
+  now.setMinutes(now.getMinutes() - now.getTimezoneOffset())
+  return now.toISOString().slice(0, 10)
 }
 
 export default function ManageOffers() {
@@ -89,6 +110,7 @@ export default function ManageOffers() {
       const id = String(offer.id ?? '')
       const origin = String(offer.origin || '')
       const destination = String(offer.destination || '')
+      const departureDate = formatDepartureDate(offer.departure_date)
       const status = displayStatus(offer.status)
       const mode = displayMode(offer.mode)
 
@@ -97,12 +119,14 @@ export default function ManageOffers() {
         title.toLowerCase().includes(query) ||
         id.toLowerCase().includes(query) ||
         origin.toLowerCase().includes(query) ||
-        destination.toLowerCase().includes(query)
+        destination.toLowerCase().includes(query) ||
+        departureDate.toLowerCase().includes(query)
 
       const matchesStatus =
         statusFilter === 'All' || status === statusFilter
 
-      const matchesMode = modeFilter === 'All' || mode === modeFilter
+      const matchesMode =
+        modeFilter === 'All' || mode === modeFilter
 
       return matchesSearch && matchesStatus && matchesMode
     })
@@ -115,7 +139,7 @@ export default function ManageOffers() {
   const inactiveCount = offers.length - activeCount
 
   const openCreateForm = () => {
-    setForm(emptyForm)
+    setForm({ ...emptyForm })
     setShowForm(true)
     setFeedback('')
   }
@@ -123,7 +147,7 @@ export default function ManageOffers() {
   const closeForm = () => {
     if (submitting) return
     setShowForm(false)
-    setForm(emptyForm)
+    setForm({ ...emptyForm })
   }
 
   const updateForm = (field, value) => {
@@ -139,6 +163,7 @@ export default function ManageOffers() {
             previous.coverage === 'nationwide'
               ? previous.coverage
               : 'global'
+
           next.origin = ''
           next.destination = ''
         }
@@ -164,6 +189,7 @@ export default function ManageOffers() {
 
     const ratePerKg = Number(form.ratePerKg)
     const maxWeightKg = Number(form.maxWeightKg)
+
     const availableSpace =
       form.availableSpace.trim() === ''
         ? maxWeightKg
@@ -193,13 +219,27 @@ export default function ManageOffers() {
 
     if (
       form.offerType === 'route_specific' &&
-      (!form.origin.trim() ||
+      (
+        !form.origin.trim() ||
         !form.destination.trim() ||
         form.origin.trim().toLowerCase() ===
-          form.destination.trim().toLowerCase())
+          form.destination.trim().toLowerCase()
+      )
     ) {
       setFeedbackType('error')
       setFeedback('Enter different origin and destination locations.')
+      return
+    }
+
+    if (!form.departureDate) {
+      setFeedbackType('error')
+      setFeedback('Select the cargo departure date.')
+      return
+    }
+
+    if (form.departureDate < getTodayDate()) {
+      setFeedbackType('error')
+      setFeedback('Cargo departure date cannot be in the past.')
       return
     }
 
@@ -207,7 +247,9 @@ export default function ManageOffers() {
       offerType: form.offerType,
       mode: form.mode,
       origin:
-        form.offerType === 'route_specific' ? form.origin.trim() : null,
+        form.offerType === 'route_specific'
+          ? form.origin.trim()
+          : null,
       destination:
         form.offerType === 'route_specific'
           ? form.destination.trim()
@@ -216,6 +258,7 @@ export default function ManageOffers() {
       ratePerKg,
       maxWeightKg,
       availableSpace,
+      departureDate: form.departureDate,
     }
 
     setSubmitting(true)
@@ -229,7 +272,8 @@ export default function ManageOffers() {
       setFeedbackType('success')
       setFeedback(data.message || 'Shipping offer created successfully.')
       setShowForm(false)
-      setForm(emptyForm)
+      setForm({ ...emptyForm })
+
       await loadOffers()
     } catch (error) {
       setFeedbackType('error')
@@ -381,7 +425,7 @@ export default function ManageOffers() {
               type="search"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search by offer, ID, or route..."
+              placeholder="Search by offer, ID, route, or date..."
               aria-label="Search offers"
               className={inputClass}
             />
@@ -419,6 +463,7 @@ export default function ManageOffers() {
                   <th className="px-4 py-4 font-semibold">Transport</th>
                   <th className="px-4 py-4 font-semibold">Rate</th>
                   <th className="px-4 py-4 font-semibold">Available / Max</th>
+                  <th className="px-4 py-4 font-semibold">Departure Date</th>
                   <th className="px-4 py-4 font-semibold">Status</th>
                   <th className="px-4 py-4 font-semibold">Action</th>
                 </tr>
@@ -479,6 +524,9 @@ export default function ManageOffers() {
                           <p className="mt-1 text-xs text-slate-500">
                             of {formatNumber(offer.max_weight_kg)} kg
                           </p>
+                        </td>
+                        <td className="px-4 py-4">
+                          {formatDepartureDate(offer.departure_date)}
                         </td>
                         <td className="px-4 py-4">
                           <span
@@ -698,6 +746,29 @@ export default function ManageOffers() {
                       </div>
                     </>
                   )}
+
+                  <div>
+                    <label
+                      htmlFor="offer-departure-date"
+                      className="mb-2 block text-sm font-semibold"
+                    >
+                      Cargo Departure Date
+                    </label>
+                    <input
+                      id="offer-departure-date"
+                      type="date"
+                      required
+                      min={getTodayDate()}
+                      value={form.departureDate}
+                      onChange={(event) =>
+                        updateForm('departureDate', event.target.value)
+                      }
+                      className={inputClass}
+                    />
+                    <p className="mt-1 text-xs text-slate-500">
+                      Select the planned date the cargo will depart.
+                    </p>
+                  </div>
 
                   <div>
                     <label

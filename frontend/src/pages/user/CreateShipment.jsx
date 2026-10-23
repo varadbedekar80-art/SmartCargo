@@ -1,5 +1,3 @@
-
-
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { apiRequest } from '../../services/api';
 
@@ -11,10 +9,25 @@ const initialFormData = {
   transportMode: 'sea',
   origin: '',
   destination: '',
+  departureDate: '',
   pickupDate: '',
   deliveryDate: '',
   description: '',
 };
+
+function getTodayDate() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+
+  return `${year}-${month}-${day}`;
+}
+
+function formatDate(value) {
+  if (!value) return 'Not specified';
+  return String(value).slice(0, 10);
+}
 
 function formatMode(mode) {
   const modes = {
@@ -68,22 +81,26 @@ export default function CreateShipment() {
   const [formData, setFormData] = useState(initialFormData);
   const [offers, setOffers] = useState([]);
   const [selectedOfferId, setSelectedOfferId] = useState('');
-  const [loadingOffers, setLoadingOffers] = useState(true);
+  const [loadingOffers, setLoadingOffers] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
-
-  // Retain the cargo ID if cargo creation succeeds but shipment creation fails.
   const [createdCargoId, setCreatedCargoId] = useState(null);
 
-  const loadOffers = useCallback(async () => {
+  const loadOffers = useCallback(async (departureDate) => {
     setLoadingOffers(true);
     setErrorMessage('');
 
     try {
-      const response = await apiRequest('/offers/active');
+      const query = departureDate
+        ? `?departureDate=${encodeURIComponent(departureDate)}`
+        : '';
+
+      const response = await apiRequest(`/offers/active${query}`);
+
       setOffers(Array.isArray(response.offers) ? response.offers : []);
     } catch (error) {
+      setOffers([]);
       setErrorMessage(
         error.message || 'Unable to load available shipping offers.'
       );
@@ -92,9 +109,10 @@ export default function CreateShipment() {
     }
   }, []);
 
+  // Reload offers whenever the user changes the required departure date.
   useEffect(() => {
-    loadOffers();
-  }, [loadOffers]);
+    loadOffers(formData.departureDate);
+  }, [loadOffers, formData.departureDate]);
 
   const handleChange = (event) => {
     const { name, value } = event.target;
@@ -112,7 +130,11 @@ export default function CreateShipment() {
     const weight = Number(formData.weight);
     const mode = formData.transportMode.toLowerCase();
 
-    if (!Number.isFinite(weight) || weight <= 0) {
+    if (
+      !formData.departureDate ||
+      !Number.isFinite(weight) ||
+      weight <= 0
+    ) {
       return [];
     }
 
@@ -120,8 +142,10 @@ export default function CreateShipment() {
       const offerMode = String(offer.mode || '').toLowerCase();
       const availableSpace = Number(offer.available_space);
       const maxWeight = Number(offer.max_weight_kg);
+      const offerDate = formatDate(offer.departure_date);
 
       return (
+        offerDate === formData.departureDate &&
         offerMode === mode &&
         weight <= availableSpace &&
         weight <= maxWeight &&
@@ -130,6 +154,7 @@ export default function CreateShipment() {
     });
   }, [
     offers,
+    formData.departureDate,
     formData.weight,
     formData.transportMode,
     formData.origin,
@@ -171,24 +196,42 @@ export default function CreateShipment() {
       return 'Origin and destination cannot be the same.';
     }
 
-    if (!Number.isFinite(Number(formData.quantity)) ||
-        Number(formData.quantity) < 1 ||
-        !Number.isInteger(Number(formData.quantity))) {
+    if (
+      !Number.isInteger(Number(formData.quantity)) ||
+      Number(formData.quantity) < 1
+    ) {
       return 'Quantity must be a positive whole number.';
     }
 
-    if (!Number.isFinite(Number(formData.weight)) ||
-        Number(formData.weight) <= 0) {
+    if (
+      !Number.isFinite(Number(formData.weight)) ||
+      Number(formData.weight) <= 0
+    ) {
       return 'Please enter a valid weight greater than zero.';
     }
 
+    if (!formData.departureDate) {
+      return 'Please select the required shipping departure date.';
+    }
+
+    if (formData.departureDate < getTodayDate()) {
+      return 'Departure date cannot be in the past.';
+    }
+
     if (!selectedOfferId || !selectedOffer) {
-      return 'Please select a compatible shipping offer.';
+      return 'Please select a compatible shipping offer for your departure date.';
     }
 
     if (
       formData.pickupDate &&
+      formData.pickupDate < getTodayDate()
+    ) {
+      return 'Pickup date cannot be in the past.';
+    }
+
+    if (
       formData.deliveryDate &&
+      formData.pickupDate &&
       formData.deliveryDate < formData.pickupDate
     ) {
       return 'Delivery date cannot be earlier than pickup date.';
@@ -214,8 +257,7 @@ export default function CreateShipment() {
     try {
       let cargoId = createdCargoId;
 
-      // Create cargo only once. If shipment creation failed previously,
-      // reuse the cargo ID instead of creating duplicate cargo records.
+      // Reuse an existing cargo ID if shipment submission previously failed.
       if (!cargoId) {
         const cargoResponse = await apiRequest('/cargo', {
           method: 'POST',
@@ -244,6 +286,7 @@ export default function CreateShipment() {
           origin: formData.origin.trim(),
           destination: formData.destination.trim(),
           offerId: Number(selectedOfferId),
+          departureDate: formData.departureDate,
         }),
       });
 
@@ -255,8 +298,6 @@ export default function CreateShipment() {
       setFormData(initialFormData);
       setSelectedOfferId('');
       setCreatedCargoId(null);
-
-      await loadOffers();
     } catch (error) {
       setErrorMessage(
         error.message ||
@@ -268,8 +309,6 @@ export default function CreateShipment() {
   };
 
   const resetForm = () => {
-    // Do not discard a cargo ID that must be reused after a failed shipment
-    // request. Complete the shipment retry before resetting the form.
     if (createdCargoId) {
       setErrorMessage(
         'Cargo has already been saved. Please retry creating the shipment before resetting the form.'
@@ -290,7 +329,8 @@ export default function CreateShipment() {
           Create Shipment
         </h1>
         <p className="mt-1 text-sm text-gray-600">
-          Enter your cargo details and choose a compatible shipping offer.
+          Enter your cargo details, choose your departure date, and select
+          a matching shipping offer.
         </p>
       </div>
 
@@ -466,6 +506,26 @@ export default function CreateShipment() {
 
             <div>
               <label
+                htmlFor="departureDate"
+                className="mb-1 block text-sm font-medium text-gray-700"
+              >
+                Required Departure Date *
+              </label>
+              <input
+                id="departureDate"
+                name="departureDate"
+                type="date"
+                min={getTodayDate()}
+                value={formData.departureDate}
+                onChange={handleChange}
+                required
+                disabled={submitting}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2.5 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-gray-100"
+              />
+            </div>
+
+            <div>
+              <label
                 htmlFor="origin"
                 className="mb-1 block text-sm font-medium text-gray-700"
               >
@@ -513,6 +573,7 @@ export default function CreateShipment() {
                 id="pickupDate"
                 name="pickupDate"
                 type="date"
+                min={getTodayDate()}
                 value={formData.pickupDate}
                 onChange={handleChange}
                 disabled={submitting}
@@ -531,7 +592,7 @@ export default function CreateShipment() {
                 id="deliveryDate"
                 name="deliveryDate"
                 type="date"
-                min={formData.pickupDate || undefined}
+                min={formData.pickupDate || getTodayDate()}
                 value={formData.deliveryDate}
                 onChange={handleChange}
                 disabled={submitting}
@@ -548,13 +609,14 @@ export default function CreateShipment() {
                 Available Shipping Offers
               </h2>
               <p className="mt-1 text-sm text-gray-600">
-                Offers are filtered by transport mode, route, and cargo weight.
+                Select a departure date to find matching offers. Results are
+                also filtered by transport mode, route, and cargo weight.
               </p>
             </div>
 
             <button
               type="button"
-              onClick={loadOffers}
+              onClick={() => loadOffers(formData.departureDate)}
               disabled={loadingOffers || submitting}
               className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
             >
@@ -562,7 +624,17 @@ export default function CreateShipment() {
             </button>
           </div>
 
-          {loadingOffers ? (
+          {!formData.departureDate ? (
+            <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-6 text-center">
+              <p className="font-medium text-gray-800">
+                Select a departure date first
+              </p>
+              <p className="mt-2 text-sm text-gray-600">
+                Available offers will be filtered according to the date you
+                select above.
+              </p>
+            </div>
+          ) : loadingOffers ? (
             <p className="rounded-lg bg-gray-50 p-5 text-center text-sm text-gray-600">
               Loading shipping offers...
             </p>
@@ -572,8 +644,9 @@ export default function CreateShipment() {
                 No compatible offers found
               </p>
               <p className="mt-2 text-sm text-gray-600">
-                Try another transport mode, adjust the weight, or check the
-                origin and destination.
+                No available offer matches your selected departure date,
+                transport mode, route, and cargo weight. Try another date or
+                adjust your shipment details.
               </p>
             </div>
           ) : (
@@ -623,6 +696,13 @@ export default function CreateShipment() {
                     </div>
 
                     <div className="mt-4 space-y-2 text-sm">
+                      <div className="flex justify-between gap-3">
+                        <span className="text-gray-600">Departure Date</span>
+                        <span className="font-medium text-gray-900">
+                          {formatDate(offer.departure_date)}
+                        </span>
+                      </div>
+
                       <div className="flex justify-between gap-3">
                         <span className="text-gray-600">Offer Type</span>
                         <span className="text-right font-medium text-gray-900">
@@ -683,6 +763,9 @@ export default function CreateShipment() {
                 Selected: {selectedOffer.company_name || 'Logistics Provider'}
               </p>
               <p className="mt-1 text-sm text-blue-800">
+                Departure date: {formatDate(selectedOffer.departure_date)}
+              </p>
+              <p className="mt-1 text-sm text-blue-800">
                 Estimated cost: {formatCurrency(estimatedPrice)}
               </p>
               <p className="mt-1 text-xs text-blue-700">
@@ -707,11 +790,7 @@ export default function CreateShipment() {
             disabled={submitting || loadingOffers}
             className="rounded-lg bg-blue-600 px-5 py-3 font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {submitting
-              ? 'Creating Shipment...'
-              : createdCargoId
-                ? 'Retry Shipment Creation'
-                : 'Create Shipment'}
+            {submitting ? 'Submitting...' : 'Create Shipment'}
           </button>
         </div>
       </form>

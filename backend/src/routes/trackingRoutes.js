@@ -1,3 +1,4 @@
+
 const express = require('express');
 
 const authenticateToken = require('../middleware/authMiddleware');
@@ -10,15 +11,15 @@ const {
 
 const router = express.Router();
 
-// Business Users can view tracking history for their own shipments.
+// Business users and assigned logistics providers can view tracking history.
 router.get(
   '/:id',
   authenticateToken,
-  allowRoles('business_user'),
+  allowRoles('business_user', 'provider'),
   getTrackingHistory
 );
 
-// Logistics Providers can update tracking for shipments assigned through their offers.
+// Logistics providers can add tracking updates to their assigned shipments.
 router.post(
   '/:id',
   authenticateToken,

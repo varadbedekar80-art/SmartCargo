@@ -1,7 +1,9 @@
+
 const {
   trackingMilestones,
   addTrackingUpdate,
   getTrackingHistoryForUser,
+  getTrackingHistoryForProvider,
 } = require('../services/trackingService');
 
 async function updateTracking(req, res) {
@@ -110,15 +112,29 @@ async function getTrackingHistory(req, res) {
       });
     }
 
-    const history = await getTrackingHistoryForUser(
-      req.user.id,
-      shipmentId
-    );
+    let history;
+
+    if (req.user.role === 'provider') {
+      history = await getTrackingHistoryForProvider(
+        req.user.id,
+        shipmentId
+      );
+    } else if (req.user.role === 'business_user') {
+      history = await getTrackingHistoryForUser(
+        req.user.id,
+        shipmentId
+      );
+    } else {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have permission to view tracking history',
+      });
+    }
 
     if (history === null) {
       return res.status(404).json({
         success: false,
-        message: 'Shipment not found',
+        message: 'Shipment not found or not assigned to you',
       });
     }
 

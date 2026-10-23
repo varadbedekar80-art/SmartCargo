@@ -1,13 +1,44 @@
-
 const {
   createShipment,
   getShipmentsByUser,
   getShipmentById,
 } = require('../services/shipmentService');
 
+function isValidDate(value) {
+  if (typeof value !== 'string') {
+    return false;
+  }
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return false;
+  }
+
+  const date = new Date(`${value}T00:00:00.000Z`);
+
+  return (
+    Number.isFinite(date.getTime()) &&
+    date.toISOString().slice(0, 10) === value
+  );
+}
+
+function getTodayDate() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+
+  return `${year}-${month}-${day}`;
+}
+
 async function addShipment(req, res) {
   try {
-    const { cargoId, origin, destination, offerId } = req.body;
+    const {
+      cargoId,
+      origin,
+      destination,
+      offerId,
+      departureDate,
+    } = req.body;
 
     if (
       cargoId === undefined ||
@@ -39,6 +70,20 @@ async function addShipment(req, res) {
       });
     }
 
+    if (!isValidDate(departureDate)) {
+      return res.status(400).json({
+        success: false,
+        message: 'A valid departure date is required in YYYY-MM-DD format',
+      });
+    }
+
+    if (departureDate < getTodayDate()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Departure date cannot be in the past',
+      });
+    }
+
     const cleanOrigin = origin.trim();
     const cleanDestination = destination.trim();
 
@@ -63,6 +108,7 @@ async function addShipment(req, res) {
       origin: cleanOrigin,
       destination: cleanDestination,
       offerId: Number(offerId),
+      departureDate,
     });
 
     return res.status(201).json({
@@ -80,7 +126,7 @@ async function addShipment(req, res) {
       ],
       OFFER_NOT_AVAILABLE: [
         400,
-        'Shipping offer is not available',
+        'The selected shipping offer is unavailable or does not match the selected departure date',
       ],
       CARGO_EXCEEDS_MAX_WEIGHT: [
         400,

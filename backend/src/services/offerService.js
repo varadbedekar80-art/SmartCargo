@@ -9,6 +9,7 @@ async function createOffer(providerUserId, {
   ratePerKg,
   maxWeightKg,
   availableSpace,
+  departureDate,
 }) {
   const [profiles] = await db.query(
     'SELECT id FROM provider_profiles WHERE user_id = ?',
@@ -31,8 +32,9 @@ async function createOffer(providerUserId, {
       coverage,
       rate_per_kg,
       max_weight_kg,
-      available_space
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      available_space,
+      departure_date
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       providerProfileId,
       offerType,
@@ -43,6 +45,7 @@ async function createOffer(providerUserId, {
       ratePerKg,
       maxWeightKg,
       availableSpace ?? maxWeightKg,
+      departureDate,
     ]
   );
 
@@ -63,6 +66,7 @@ async function getOfferById(offerId) {
       so.rate_per_kg,
       so.max_weight_kg,
       so.available_space,
+      so.departure_date,
       so.status,
       so.created_at
      FROM shipping_offers so
@@ -86,6 +90,7 @@ async function getOffersByProvider(providerUserId) {
       so.rate_per_kg,
       so.max_weight_kg,
       so.available_space,
+      so.departure_date,
       so.status,
       so.created_at
      FROM shipping_offers so
@@ -98,9 +103,9 @@ async function getOffersByProvider(providerUserId) {
   return rows;
 }
 
-async function getActiveOffers() {
-  const [rows] = await db.query(
-    `SELECT
+async function getActiveOffers(departureDate = null) {
+  let sql = `
+    SELECT
       so.id,
       pp.company_name,
       so.offer_type,
@@ -111,13 +116,24 @@ async function getActiveOffers() {
       so.rate_per_kg,
       so.max_weight_kg,
       so.available_space,
+      so.departure_date,
       so.status
-     FROM shipping_offers so
-     JOIN provider_profiles pp ON pp.id = so.provider_id
-     WHERE so.status = 'active'
-       AND so.available_space > 0
-     ORDER BY so.created_at DESC`
-  );
+    FROM shipping_offers so
+    JOIN provider_profiles pp ON pp.id = so.provider_id
+    WHERE so.status = 'active'
+      AND so.available_space > 0
+  `;
+
+  const params = [];
+
+  if (departureDate) {
+    sql += ' AND so.departure_date = ?';
+    params.push(departureDate);
+  }
+
+  sql += ' ORDER BY so.departure_date ASC, so.created_at DESC';
+
+  const [rows] = await db.query(sql, params);
 
   return rows;
 }

@@ -33,10 +33,11 @@ const trackingMilestones = {
   ],
 };
 
-async function addTrackingUpdate(providerUserId, shipmentId, {
-  milestone,
-  remarks,
-}) {
+async function addTrackingUpdate(
+  providerUserId,
+  shipmentId,
+  { milestone, remarks }
+) {
   const connection = await db.getConnection();
   let transactionStarted = false;
 
@@ -44,13 +45,13 @@ async function addTrackingUpdate(providerUserId, shipmentId, {
     await connection.beginTransaction();
     transactionStarted = true;
 
-    // Lock the shipment and verify provider ownership.
+    // Verify that this shipment is assigned to the logged-in provider.
     const [rows] = await connection.query(
       `SELECT
-        s.id,
-        s.user_id,
-        s.status,
-        s.mode
+         s.id,
+         s.user_id,
+         s.status,
+         s.mode
        FROM shipments s
        JOIN shipping_offers so ON so.id = s.offer_id
        JOIN provider_profiles pp ON pp.id = so.provider_id
@@ -66,18 +67,23 @@ async function addTrackingUpdate(providerUserId, shipmentId, {
     const shipment = rows[0];
 
     if (
-      !['confirmed', 'picked_up', 'in_transit'].includes(shipment.status)
+      !['confirmed', 'picked_up', 'in_transit'].includes(
+        shipment.status
+      )
     ) {
       throw new Error('SHIPMENT_NOT_TRACKABLE');
     }
 
     const allowedMilestones = trackingMilestones[shipment.mode];
 
-    if (!allowedMilestones || !allowedMilestones.includes(milestone)) {
+    if (
+      !allowedMilestones ||
+      !allowedMilestones.includes(milestone)
+    ) {
       throw new Error('INVALID_MILESTONE');
     }
 
-    // Read the latest tracking event.
+    // Retrieve the most recent tracking milestone.
     const [previousUpdates] = await connection.query(
       `SELECT milestone
        FROM shipment_tracking
@@ -88,17 +94,19 @@ async function addTrackingUpdate(providerUserId, shipmentId, {
     );
 
     const previousMilestone = previousUpdates[0]?.milestone;
+
     const previousIndex = previousMilestone
       ? allowedMilestones.indexOf(previousMilestone)
       : -1;
+
     const newIndex = allowedMilestones.indexOf(milestone);
 
-    // If booking confirmation is missing, require it first.
+    // Booking confirmation must be the first tracking milestone.
     if (previousIndex === -1 && newIndex !== 0) {
       throw new Error('MILESTONE_OUT_OF_ORDER');
     }
 
-    // Require exactly the next milestone; block duplicates and skips.
+    // Only the next milestone in sequence can be added.
     if (previousIndex >= 0 && newIndex !== previousIndex + 1) {
       throw new Error(
         newIndex === previousIndex
@@ -107,15 +115,18 @@ async function addTrackingUpdate(providerUserId, shipmentId, {
       );
     }
 
-    // Record the milestone.
+    // Save the tracking update.
     await connection.query(
       `INSERT INTO shipment_tracking (
-        shipment_id, milestone, remarks, updated_by
-      ) VALUES (?, ?, ?, ?)`,
+         shipment_id,
+         milestone,
+         remarks,
+         updated_by
+       ) VALUES (?, ?, ?, ?)`,
       [shipmentId, milestone, remarks || null, providerUserId]
     );
 
-    // Update the shipment's overall status where appropriate.
+    // Update the shipment status when necessary.
     let shipmentStatus = shipment.status;
 
     if (milestone === 'cargo_picked_up') {
@@ -133,7 +144,7 @@ async function addTrackingUpdate(providerUserId, shipmentId, {
       );
     }
 
-    // Notify the business user about important milestones.
+    // Notify the business user about important tracking milestones.
     const notificationDetails = {
       cargo_picked_up: {
         title: 'Cargo Picked Up',
@@ -154,8 +165,11 @@ async function addTrackingUpdate(providerUserId, shipmentId, {
     if (notification) {
       await connection.query(
         `INSERT INTO notifications (
-          user_id, shipment_id, title, message
-        ) VALUES (?, ?, ?, ?)`,
+           user_id,
+           shipment_id,
+           title,
+           message
+         ) VALUES (?, ?, ?, ?)`,
         [
           shipment.user_id,
           shipmentId,
@@ -191,6 +205,7 @@ async function addTrackingUpdate(providerUserId, shipmentId, {
   }
 }
 
+// Business users can view tracking history for their own shipments.
 async function getTrackingHistoryForUser(userId, shipmentId) {
   const [shipments] = await db.query(
     `SELECT id
@@ -205,11 +220,46 @@ async function getTrackingHistoryForUser(userId, shipmentId) {
 
   const [rows] = await db.query(
     `SELECT
-      st.id,
-      st.milestone,
-      st.remarks,
-      st.created_at,
-      u.name AS updated_by_name
+       st.id,
+       st.milestone,
+       st.remarks,
+       st.created_at,
+       u.name AS updated_by_name
+     FROM shipment_tracking st
+     JOIN users u ON u.id = st.updated_by
+     WHERE st.shipment_id = ?
+     ORDER BY st.created_at ASC, st.id ASC`,
+    [shipmentId]
+  );
+
+  return rows;
+}
+
+// Providers can view history only for shipments assigned to them.
+async function getTrackingHistoryForProvider(
+  providerUserId,
+  shipmentId
+) {
+  const [shipments] = await db.query(
+    `SELECT s.id
+     FROM shipments s
+     JOIN shipping_offers so ON so.id = s.offer_id
+     JOIN provider_profiles pp ON pp.id = so.provider_id
+     WHERE s.id = ? AND pp.user_id = ?`,
+    [shipmentId, providerUserId]
+  );
+
+  if (shipments.length === 0) {
+    return null;
+  }
+
+  const [rows] = await db.query(
+    `SELECT
+       st.id,
+       st.milestone,
+       st.remarks,
+       st.created_at,
+       u.name AS updated_by_name
      FROM shipment_tracking st
      JOIN users u ON u.id = st.updated_by
      WHERE st.shipment_id = ?
@@ -224,4 +274,5 @@ module.exports = {
   trackingMilestones,
   addTrackingUpdate,
   getTrackingHistoryForUser,
+  getTrackingHistoryForProvider,
 };
